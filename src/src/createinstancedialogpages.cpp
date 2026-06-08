@@ -1050,17 +1050,15 @@ void PathsPage::doActivated(bool firstTime)
 
   const bool isGlobal = (type == CreateInstanceDialog::Global);
 
-  // Global instances have a fixed location derived from the instance name;
-  // the user should not be able to browse to an arbitrary directory.
+  // Global instances keep their base in the canonical root so the instance
+  // stays discoverable (see InstanceManager::globalInstancePaths), so the
+  // base/location fields are pinned and cannot be browsed. The advanced
+  // options remain available so downloads/mods/profiles/overwrite can still
+  // be relocated to another drive.
   ui->location->setReadOnly(isGlobal);
   ui->browseLocation->setVisible(!isGlobal);
-  ui->advancedPathOptions->setVisible(!isGlobal);
-
-  // If switching from portable back to global, reset to simple view
-  if (isGlobal && ui->advancedPathOptions->isChecked()) {
-    ui->advancedPathOptions->setChecked(false);
-    ui->pathPages->setCurrentIndex(0);
-  }
+  ui->base->setReadOnly(isGlobal);
+  ui->browseBase->setVisible(!isGlobal);
 
   // generating and paths
   setPaths(name, changed);
@@ -1160,22 +1158,25 @@ void PathsPage::onAdvanced()
 void PathsPage::setPaths(const QString& name, bool force)
 {
   QString basePath;
+  bool forceBase = force;
 
   if (m_dlg.rawCreationInfo().type == CreateInstanceDialog::Portable) {
     basePath = InstanceManager::singleton().portablePath();
   } else {
     const auto root = InstanceManager::singleton().globalInstancesRootPath();
     basePath        = root + "/" + name;
-    // Global instances always use the auto-derived path
-    force = true;
+    // Global instances always keep their base pinned to the auto-derived path
+    // so the instance remains discoverable, even as the instance name changes.
+    forceBase = true;
   }
 
   basePath = QDir::toNativeSeparators(QDir::cleanPath(basePath));
 
-  // all paths are set regardless of advanced checkbox
-
-  setIfEmpty(ui->location, basePath, force);
-  setIfEmpty(ui->base, basePath, force);
+  // the base/location are pinned for global instances; the remaining paths are
+  // %BASE_DIR%-relative by default but may be relocated by the user, so they're
+  // only reset when the instance name/type actually changed
+  setIfEmpty(ui->location, basePath, forceBase);
+  setIfEmpty(ui->base, basePath, forceBase);
 
   setIfEmpty(ui->downloads, makeDefaultPath(AppConfig::downloadPath()), force);
   setIfEmpty(ui->mods, makeDefaultPath(AppConfig::modsPath()), force);
