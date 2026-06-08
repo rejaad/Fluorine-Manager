@@ -96,7 +96,8 @@ for pyfile in \
     "libs/form43_checker/src/Form43Checker.py" \
     "libs/script_extender_plugin_checker/src/ScriptExtenderPluginChecker.py" \
     "libs/preview_dds/src/DDSPreview.py" \
-    "src/plugins/installer_omod.py"; do
+    "src/plugins/installer_omod.py" \
+    "src/plugins/collection_downloader.py"; do
     [ -f "${pyfile}" ] && cp -f "${pyfile}" "${OUT_DIR}/plugins/"
 done
 

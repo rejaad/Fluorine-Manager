@@ -182,37 +182,35 @@ void refreshDesktopAssociationCaches(const QString& appsDir)
                     QStringList{QStringLiteral("forceupdate")});
 }
 
-// xdg-desktop-portal remembers chooser picks in its permission store. An
-// earlier build registered both com.fluorine.manager.desktop and
-// mo2-nxm-handler.desktop for nxm:// — anyone who picked Fluorine Manager
-// from the chooser had it persisted as their always-use app, which kept
-// routing nxm:// to the wrong handler (full MO2 launch with no URL) even
-// after the bad MimeType was removed. Strip known stale app IDs so existing
-// users self-heal on next launch or when they re-associate links.
+// xdg-desktop-portal remembers chooser picks in its permission store. The
+// entry for a scheme is keyed by the *requesting* application (e.g.
+// snap.firefox, org.kde.konsole) with the chosen handler stored as the value:
+//
+//   { 'snap.firefox': ['alpine-mod-manager', ...],
+//     'org.kde.konsole': ['com.fluorine.manager', ...] }
+//
+// An earlier build registered both com.fluorine.manager.desktop and
+// mo2-nxm-handler.desktop for nxm://, so a chooser pick could persist the
+// full-app launch (which just reports "an instance is already running") or a
+// third-party manager as the always-use handler, even after the bad MimeType
+// was removed. We wipe the whole entry so the next click re-resolves against
+// the current default; existing users self-heal on next launch.
+//
+// A previous version of this code called DeletePermission with chosen-handler
+// names as the 'app' argument, but that argument is the *requesting* app, so it
+// matched nothing and never cleared the stale pick. Delete(table, id) clears
+// the entry regardless of which app made the choice.
 void clearStalePortalChoice(const QString& mimeType)
 {
-  const QStringList staleAppIds = {
-      QStringLiteral("com.fluorine.manager"),
-      QStringLiteral("mo2-nxm-handler"),
-      QStringLiteral("ModOrganizer"),
-      QStringLiteral("modorganizer"),
-      QStringLiteral("vortex"),
-      QStringLiteral("Vortex"),
-      QStringLiteral("com.nexusmods.vortex"),
-      QStringLiteral("nexusmods-vortex"),
-  };
+  QDBusMessage msg = QDBusMessage::createMethodCall(
+      "org.freedesktop.impl.portal.PermissionStore",
+      "/org/freedesktop/impl/portal/PermissionStore",
+      "org.freedesktop.impl.portal.PermissionStore", "Delete");
+  msg << QStringLiteral("desktop-used-apps") << mimeType;
 
-  for (const auto& appId : staleAppIds) {
-    QDBusMessage msg = QDBusMessage::createMethodCall(
-        "org.freedesktop.impl.portal.PermissionStore",
-        "/org/freedesktop/impl/portal/PermissionStore",
-        "org.freedesktop.impl.portal.PermissionStore", "DeletePermission");
-    msg << QStringLiteral("desktop-used-apps") << mimeType << appId;
-
-    // Fire-and-forget on the session bus. The reply is uninteresting: a missing
-    // entry returns an error and we don't want to log on every clean startup.
-    QDBusConnection::sessionBus().call(msg, QDBus::NoBlock);
-  }
+  // Fire-and-forget on the session bus. A missing entry returns an error we
+  // don't care about, so don't block or log on every clean startup.
+  QDBusConnection::sessionBus().call(msg, QDBus::NoBlock);
 }
 
 void updateMimeAppsList(const QString& path, const QString& mimeType,
@@ -403,12 +401,17 @@ void NxmHandlerLinux::registerHandler()
   const QString execLine = wrapperPath + " nxm-handle %u";
 
   const QString desktopPath = appsDir + "/" + NxmDesktopFile;
+  // NOTE: deliberately NOT NoDisplay=true. Sandboxed browsers (Snap/Flatpak)
+  // open nxm:// through xdg-desktop-portal, whose KDE/GTK "Open with" chooser
+  // filters out NoDisplay handlers — so a hidden handler can never be picked,
+  // leaving users stuck on the chooser. Keeping it visible costs only a menu
+  // entry but lets the portal chooser offer (and remember) this handler.
   const QString desktop = QString("[Desktop Entry]\n"
                                   "Type=Application\n"
                                   "Name=Fluorine Manager NXM Handler\n"
                                   "Exec=%1\n"
-                                  "MimeType=x-scheme-handler/nxm;x-scheme-handler/modl;\n"
-                                  "NoDisplay=true\n").arg(execLine);
+                                  "MimeType=x-scheme-handler/nxm;x-scheme-handler/modl;\n")
+                              .arg(execLine);
 
   if (!writeTextFile(desktopPath, desktop)) {
     log::error("failed to write nxm desktop entry '{}'", desktopPath);
