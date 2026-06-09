@@ -30,6 +30,9 @@ __pycache__/
 # Generated settings files
 fomod-plus-settings.ini
 
+# Unreleased / WIP plugin (kept locally, not tracked)
+src/plugins/collection_downloader.py
+
 # Nix
 .nix-venv/
 result
